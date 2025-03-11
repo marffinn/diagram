@@ -56,6 +56,21 @@ const FlowCanvas = ({ user }) => {
             setTimeout(() => fitView({ duration: 1000, padding: 0.2 }), 100);
         });
         fetchData('http://localhost:3000/api/edges', setEdges);
+
+        // WebSocket for incoming calls/SMS
+        const ws = new WebSocket('ws://localhost:8080');
+        ws.onopen = () => console.log('Connected to WebSocket');
+        ws.onmessage = (event) => {
+            const { type, nodeId } = JSON.parse(event.data);
+            if (nodeId) {
+                console.log(`Panning to node ${nodeId} for ${type}`);
+                fitView({ nodes: [{ id: nodeId }], duration: 1000, padding: 0.2 });
+            }
+        };
+        ws.onerror = (err) => console.error('WebSocket error:', err);
+        ws.onclose = () => console.log('WebSocket closed');
+
+        return () => ws.close();
     }, [user, setNodes, setEdges, fitView]);
 
     useEffect(() => {
@@ -165,7 +180,14 @@ const FlowCanvas = ({ user }) => {
                 ...(newType === 'customer' && { client_name: 'New Customer', client_emails: [], client_phones: [], client_note: '' }),
                 ...(newType === 'note' && { notes: 'New Note' }),
                 ...(newType === 'sms' && { notes: 'SMS Chat' }),
-                ...(newType === 'contractor' && { contractor_name: 'New Contractor', services: '', emails: [], numbers: [], price_suggested: '', created_at: Date.now() })
+                ...(newType === 'contractor' && {
+                    contractor_name: 'New Contractor',
+                    services: '',
+                    emails: [],
+                    numbers: [],
+                    price_suggested: '',
+                    created_at: Date.now()
+                })
             }
         } : node));
         setContextMenu(null);
@@ -189,7 +211,6 @@ const FlowCanvas = ({ user }) => {
         if (contextMenu && node.id !== contextMenu.nodeId) {
             setContextMenu(null);
         }
-
         setSelectedNodeId(node.id);
 
         const getConnectedEdges = (nodeId, edgeSet = new Set(), visitedNodes = new Set()) => {
@@ -212,7 +233,6 @@ const FlowCanvas = ({ user }) => {
         };
 
         const connectedEdgeIds = getConnectedEdges(node.id);
-
         setEdges(eds => eds.map(edge => ({
             ...edge,
             style: connectedEdgeIds.has(edge.id)
@@ -237,7 +257,7 @@ const FlowCanvas = ({ user }) => {
             </div>
             {contextMenu && (
                 <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
-                    {['customer', 'note', 'sms', 'timer', 'contractor'].map(type => ( // Add 'contractor'
+                    {['customer', 'note', 'sms', 'timer', 'contractor'].map(type => (
                         <div key={type} className="context-item" onClick={() => changeNodeType(type)}>
                             Change to {type.charAt(0).toUpperCase() + type.slice(1)}
                         </div>

@@ -10,8 +10,9 @@ import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import WebSocket, { WebSocketServer } from 'ws'; // Add WebSocket
 
-dotenv.config(); // Load .env variables
+dotenv.config();
 
 const app = express();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,17 +24,35 @@ const db = new sqlite3.Database(join(dbDir, 'purple.db'), (err) => {
     console.log('Connected to SQLite database');
 });
 
+// WebSocket Server
+const wss = new WebSocketServer({ port: 8080 });
+wss.on('connection', (ws) => {
+    console.log('WebSocket client connected');
+    ws.on('close', () => console.log('WebSocket client disconnected'));
+});
+
+const broadcast = (data) => {
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(data));
+        }
+    });
+};
+
 const initDb = () => {
     const tables = [
         `users (id INTEGER PRIMARY KEY AUTOINCREMENT, googleId TEXT UNIQUE, displayName TEXT, avatar TEXT)`,
         `clients (id INTEGER PRIMARY KEY AUTOINCREMENT, userId INTEGER, name TEXT, emails TEXT, phones TEXT, note TEXT, data TEXT, FOREIGN KEY (userId) REFERENCES users(id))`,
-        `nodes (id TEXT PRIMARY KEY, type TEXT, x REAL, y REAL, clientId INTEGER, userId INTEGER, data TEXT, FOREIGN KEY (clientId) REFERENCES clients(id), FOREIGN KEY (userId) REFERENCES users(id))`,
+        `nodes (id TEXT PRIMARY KEY, type TEXT, x REAL, y REAL, clientId INTEGER, userId INTEGER, data TEXT, FOREIGN KEY (clientId) REFERENCES clients(id), FOREIGN KEY (userId) REFERENCES users(id))`, // Fixed
         `edges (id TEXT PRIMARY KEY, source TEXT, target TEXT, userId INTEGER, FOREIGN KEY (source) REFERENCES nodes(id), FOREIGN KEY (target) REFERENCES nodes(id), FOREIGN KEY (userId) REFERENCES users(id))`,
     ];
-    db.serialize(() => tables.forEach(table => db.run(`CREATE TABLE IF NOT EXISTS ${table}`)));
+    db.serialize(() => tables.forEach(table => db.run(`CREATE TABLE IF NOT EXISTS ${table}`, (err) => {
+        if (err) console.error(`Error creating table ${table}:`, err);
+    })));
 };
 initDb();
 
+// Middleware
 app.use(cors({ origin: 'http://localhost:5173', credentials: true, methods: ['GET', 'POST', 'PUT', 'DELETE'], allowedHeaders: ['Content-Type', 'Cookie'] }));
 app.use(express.json());
 app.use(cookieParser());
@@ -47,9 +66,10 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Passport setup (unchanged)
 passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,      // Use .env variable
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET, // Use .env variable
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     callbackURL: 'http://localhost:3000/auth/google/callback'
 }, (accessToken, refreshToken, profile, done) => {
     db.get('SELECT * FROM users WHERE googleId = ?', [profile.id], (err, row) => {
@@ -104,6 +124,7 @@ passport.use(new GoogleStrategy({
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser((id, done) => db.get('SELECT * FROM users WHERE id = ?', [id], done));
 
+// Auth routes (unchanged)
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: 'http://localhost:5173' }), (req, res) => {
     console.log('Callback user:', req.user);
@@ -112,6 +133,7 @@ app.get('/auth/google/callback', passport.authenticate('google', { failureRedire
 
 const requireAuth = (req, res, next) => req.user ? next() : res.status(401).json({ message: 'Not authenticated' });
 
+// Existing API routes (unchanged)
 app.get('/api/user', requireAuth, (req, res) => res.json(req.user));
 app.get('/api/logout', (req, res) => req.logout((err) => err ? res.status(500).json({ error: 'Logout failed' }) : req.session.destroy((err) => err ? res.status(500).json({ error: 'Session destruction failed' }) : res.json({ message: 'Logged out' }))));
 
@@ -135,7 +157,7 @@ app.get('/api/nodes', requireAuth, (req, res) => {
 app.get('/api/edges', requireAuth, (req, res) => db.all('SELECT * FROM edges WHERE userId = ?', [req.user.id], (err, rows) => err ? res.status(500).json({ error: err.message }) : res.json(rows)));
 
 app.post('/api/nodes', requireAuth, (req, res) => {
-    const { id, type, x, y, client_name, client_emails, client_phones, client_note, notes, created_at, avatar, name } = req.body;
+    const { id, type, x, y, client_name, client_emails, client_phones, client_note, notes, created_at, avatar, name, contractor_name, services, emails, numbers, price_suggested } = req.body;
     if (type === 'customer') {
         db.run('INSERT INTO clients (userId, name, emails, phones, note) VALUES (?, ?, ?, ?, ?)',
             [req.user.id, client_name, JSON.stringify(client_emails || []), JSON.stringify(client_phones || []), client_note || ''], function (err) {
@@ -144,8 +166,11 @@ app.post('/api/nodes', requireAuth, (req, res) => {
                     [id, type, x, y, this.lastID, req.user.id], (err) => err ? res.status(500).json({ error: err.message }) : res.json({ message: 'Node created', nodeId: id }));
             });
     } else {
+        const data = type === 'contractor'
+            ? { contractor_name, services, emails, numbers, price_suggested, created_at }
+            : { notes, created_at, avatar, name };
         db.run('INSERT INTO nodes (id, type, x, y, userId, data) VALUES (?, ?, ?, ?, ?, ?)',
-            [id, type, x, y, req.user.id, JSON.stringify({ notes, created_at, avatar, name })], (err) => {
+            [id, type, x, y, req.user.id, JSON.stringify(data)], (err) => {
                 if (err) return res.status(500).json({ error: err.message });
                 res.json({ message: 'Node created', nodeId: id });
             });
@@ -153,25 +178,7 @@ app.post('/api/nodes', requireAuth, (req, res) => {
 });
 
 app.put('/api/nodes/:id', requireAuth, (req, res) => {
-    const {
-        x,
-        y,
-        type,
-        client_name,
-        client_emails,
-        client_phones,
-        client_note,
-        notes,
-        created_at,
-        avatar,
-        name,
-        contractor_name,  // Add ContractorNode fields
-        services,
-        emails,
-        numbers,
-        price_suggested
-    } = req.body;
-
+    const { x, y, type, client_name, client_emails, client_phones, client_note, notes, created_at, avatar, name, contractor_name, services, emails, numbers, price_suggested } = req.body;
     db.get('SELECT clientId, type, x, y, data FROM nodes WHERE id = ? AND userId = ?', [req.params.id, req.user.id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(404).json({ message: 'Node not found' });
@@ -179,19 +186,11 @@ app.put('/api/nodes/:id', requireAuth, (req, res) => {
         const currentData = row.data ? JSON.parse(row.data) : {};
         let updatedData;
         if (type === 'customer') {
-            updatedData = null; // Customer data goes to clients table
+            updatedData = null;
         } else if (type === 'contractor') {
-            updatedData = {
-                ...currentData,
-                contractor_name,
-                services,
-                emails,
-                numbers,
-                price_suggested,
-                created_at
-            };
+            updatedData = { ...currentData, contractor_name, services, emails, numbers, price_suggested, created_at };
         } else {
-            updatedData = { ...currentData, notes, created_at, avatar, name }; // Other nodes
+            updatedData = { ...currentData, notes, created_at, avatar, name };
         }
         const dataJson = updatedData ? JSON.stringify(updatedData) : null;
 
@@ -238,6 +237,118 @@ app.post('/api/edges', requireAuth, (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: 'Edge created', edgeId: id });
     });
+});
+
+app.get('/incoming-call', (req, res) => {
+    const { number } = req.query;
+    const cleanNumber = number.replace(/[^0-9]/g, '');
+    console.log(`Call from: ${number} (normalized: ${cleanNumber})`);
+    console.log(`User: ${req.user ? req.user.id : 'Not authenticated'}`);
+
+    db.all(`
+        SELECT n.id, n.type, n.data, n.userId, c.name AS client_name, c.phones AS client_phones 
+        FROM nodes n 
+        LEFT JOIN clients c ON n.clientId = c.id 
+        WHERE n.type = 'customer' OR n.type = 'contractor'`,
+        [],
+        (err, rows) => {
+            if (err) {
+                console.error('Error checking caller:', err);
+                res.sendStatus(500);
+                return;
+            }
+            if (!rows || rows.length === 0) {
+                console.log('No customer or contractor nodes found in database');
+                res.json({ found: false });
+                return;
+            }
+
+            let found = false;
+            let nodeId = null;
+            for (const row of rows) {
+                if (row.type === 'customer' && row.client_phones) {
+                    const phones = JSON.parse(row.client_phones);
+                    if (phones.some(phone => phone.replace(/[^0-9]/g, '') === cleanNumber)) {
+                        console.log(`Call identified as: Customer - ${row.client_name} (userId: ${row.userId})`);
+                        found = true;
+                        nodeId = row.id;
+                        break;
+                    }
+                } else if (row.type === 'contractor') {
+                    const data = JSON.parse(row.data || '{}');
+                    if (data.numbers && data.numbers.some(num => num.replace(/[^0-9]/g, '') === cleanNumber)) {
+                        console.log(`Call identified as: Contractor - ${data.contractor_name} (userId: ${row.userId})`);
+                        found = true;
+                        nodeId = row.id;
+                        break;
+                    }
+                }
+            }
+
+            if (found) {
+                broadcast({ type: 'incoming-call', nodeId });
+                res.json({ found: true, nodeId });
+            } else {
+                console.log('Caller not found in database');
+                res.json({ found: false });
+            }
+        });
+});
+
+app.get('/incoming-sms', (req, res) => {
+    const { sender, message } = req.query;
+    const cleanSender = sender.replace(/[^0-9]/g, '');
+    console.log(`SMS from: ${sender} (normalized: ${cleanSender}), message: ${message}`);
+    console.log(`User: ${req.user ? req.user.id : 'Not authenticated'}`);
+
+    db.all(`
+        SELECT n.id, n.type, n.data, n.userId, c.name AS client_name, c.phones AS client_phones 
+        FROM nodes n 
+        LEFT JOIN clients c ON n.clientId = c.id 
+        WHERE n.type = 'customer' OR n.type = 'contractor'`,
+        [],
+        (err, rows) => {
+            if (err) {
+                console.error('Error checking SMS sender:', err);
+                res.sendStatus(500);
+                return;
+            }
+            if (!rows || rows.length === 0) {
+                console.log('No customer or contractor nodes found in database');
+                res.json({ found: false });
+                return;
+            }
+
+            let found = false;
+            let nodeId = null;
+            for (const row of rows) {
+                if (row.type === 'customer' && row.client_phones) {
+                    const phones = JSON.parse(row.client_phones);
+                    if (phones.some(phone => phone.replace(/[^0-9]/g, '') === cleanSender)) {
+                        console.log(`SMS identified as: Customer - ${row.client_name} (userId: ${row.userId})`);
+                        found = true;
+                        nodeId = row.id;
+                        break;
+                    }
+                } else if (row.type === 'contractor') {
+                    const data = JSON.parse(row.data || '{}');
+                    if (data.numbers && data.numbers.some(num => num.replace(/[^0-9]/g, '') === cleanSender)) {
+                        console.log(`SMS identified as: Contractor - ${data.contractor_name} (userId: ${row.userId})`);
+                        found = true;
+                        nodeId = row.id;
+                        break;
+                    }
+                }
+            }
+
+            if (found) {
+                broadcast({ type: 'incoming-sms', nodeId, message });
+                res.json({ found: true, nodeId });
+            } else {
+                console.log('SMS sender not found in database');
+                res.json({ found: false });
+            }
+        });
 });
 
 app.listen(3000, () => console.log('Server running on port 3000'));
