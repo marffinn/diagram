@@ -1,23 +1,40 @@
+// src/components/nodes/CustomerNode.jsx
 import { Handle, Position } from 'reactflow';
 import { useState } from 'react';
 import './CustomerNode.css';
 
 const CustomerNode = ({ id, data, onNodeDataChange }) => {
     const [clientName, setClientName] = useState(data.client_name || 'New Customer');
-    const [emails, setEmails] = useState(data.client_emails || []);
-    const [phones, setPhones] = useState(data.client_phones || []);
-    const [note, setNote] = useState(data.client_note || '');
+    const [clientEmails, setClientEmails] = useState(data.client_emails || []);
+    const [clientPhones, setClientPhones] = useState(data.client_phones || []);
+    const [clientNote, setClientNote] = useState(data.client_note || '');
 
-    const updateNode = () => {
-        const newData = { client_name: clientName, client_emails: emails, client_phones: phones, client_note: note };
-        console.log('Updating CustomerNode:', { id, ...newData });
-        onNodeDataChange(id, newData);
-        fetch(`http://localhost:3000/api/nodes/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ x: data.x, y: data.y, type: 'customer', ...newData })
-        }).catch(err => console.error('Error updating customer:', err));
+    const updateNode = async () => {
+        if (typeof onNodeDataChange === 'function') { // Ensure it’s a function
+            onNodeDataChange(id, { client_name: clientName, client_emails: clientEmails, client_phones: clientPhones, client_note: clientNote });
+        } else {
+            console.error('onNodeDataChange is not a function');
+        }
+        try {
+            const response = await fetch(`http://localhost:3000/api/nodes/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    x: data.x,
+                    y: data.y,
+                    type: 'customer',
+                    client_name: clientName,
+                    client_emails: clientEmails,
+                    client_phones: clientPhones,
+                    client_note: clientNote
+                })
+            });
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            console.log('CustomerNode saved successfully');
+        } catch (err) {
+            console.error('Error updating customer:', err);
+        }
     };
 
     return (
@@ -27,47 +44,46 @@ const CustomerNode = ({ id, data, onNodeDataChange }) => {
                 <input
                     className="input-field"
                     value={clientName}
-                    onChange={e => { console.log('Name changed:', e.target.value); setClientName(e.target.value); }}
+                    onChange={e => setClientName(e.target.value)}
                     onBlur={updateNode}
                     placeholder="Client Name"
                 />
             </div>
             <div className="input-container">
                 <label className="input-label">Emails</label>
-                {emails.map((email, i) => (
+                {clientEmails.map((email, i) => (
                     <input
                         key={i}
                         className="input-field"
                         value={email}
-                        onChange={e => { console.log('Email changed:', e.target.value); setEmails(emails.map((em, j) => i === j ? e.target.value : em)); }}
+                        onChange={e => setClientEmails(clientEmails.map((em, j) => i === j ? e.target.value : em))}
                         onBlur={updateNode}
                         placeholder="Email"
                     />
                 ))}
-                <button className="add-button" onClick={() => setEmails([...emails, ''])}>+ Add Email</button>
+                <button className="add-button" onClick={() => setClientEmails([...clientEmails, ''])}>+ Add Email</button>
             </div>
             <div className="input-container">
                 <label className="input-label">Phone Numbers</label>
-                {phones.map((phone, i) => (
+                {clientPhones.map((phone, i) => (
                     <input
                         key={i}
                         className="input-field"
                         value={phone}
-                        onChange={e => { console.log('Phone changed:', e.target.value); setPhones(phones.map((ph, j) => i === j ? e.target.value : ph)); }}
+                        onChange={e => setClientPhones(clientPhones.map((ph, j) => i === j ? e.target.value : ph))}
                         onBlur={updateNode}
                         placeholder="Phone"
                     />
                 ))}
-                <button className="add-button" onClick={() => setPhones([...phones, ''])}>+ Add Phone</button>
+                <button className="add-button" onClick={() => setClientPhones([...clientPhones, ''])}>+ Add Phone</button>
             </div>
-            <div>
-                <label className="input-label">Client Needs</label>
+            <div className="input-container">
                 <textarea
                     className="textarea-field"
-                    value={note}
-                    onChange={e => { console.log('Note changed:', e.target.value); setNote(e.target.value); }}
+                    value={clientNote}
+                    onChange={e => setClientNote(e.target.value)}
                     onBlur={updateNode}
-                    placeholder="What does the client need?"
+                    placeholder="Note"
                 />
             </div>
             <Handle type="source" position={Position.Right} className="handle" />
