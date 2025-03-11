@@ -1,0 +1,93 @@
+.sms-node {
+    background: #ffffff;
+    /* White chat area */
+    border-radius: 8px;
+    border: 1px solid #075e54;
+    /* WhatsApp green */
+    min-width: 280px;
+    /* Match CustomerNode */
+    max-width: 300px;
+    /* Match CustomerNode */
+    height: 300px;
+    /* Taller, chat window size */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    /* Contain header and content */
+    display: flex;
+    flex-direction: column;
+}
+
+.sms-header {
+    background: #075e54;
+    /* WhatsApp green */
+    color: #ffffff;
+    font-size: 16px;
+    /* Slightly larger for header */
+    font-weight: 600;
+    text-align: center;
+    padding: 10px;
+}
+
+.sms-node .handle {
+    background: #25d366;
+    /* WhatsApp lighter green */
+}
+
+.sms-node.selected-node {
+    border-color: #22c55e;
+    /* Green when selected */
+}
+
+.sms-content {
+    flex: 1;
+    /* Fill remaining space */
+    padding: 10px;
+    background: #ece5dd;
+    /* WhatsApp chat background */
+    overflow-y: auto;
+    /* Scroll if content overflows */
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* Space between bubbles */
+}
+
+.chat-bubble {
+    max-width: 70%;
+    /* Limit bubble width */
+    padding: 8px 12px;
+    border-radius: 8px;
+    position: relative;
+}
+
+.user-message {
+    background: #dcf8c6;
+    /* WhatsApp user message green */
+    align-self: flex-start;
+    /* Left-aligned */
+}
+
+.other-message {
+    background: #ffffff;
+    /* White for replies */
+    align-self: flex-end;
+    /* Right-aligned */
+    border: 1px solid #e0e0e0;
+    /* Subtle border */
+}
+
+.bubble-text {
+    color: #1f2937;
+    /* Dark text */
+    font-size: 14px;
+    word-wrap: break-word;
+}
+
+.bubble-timestamp {
+    display: block;
+    color: #6b7280;
+    /* Gray timestamp */
+    font-size: 10px;
+    margin-top: 4px;
+    text-align: right;
+}

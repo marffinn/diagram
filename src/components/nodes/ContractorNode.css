@@ -1,0 +1,111 @@
+.contractor-node {
+    padding: 15px;
+    background: #e5e7eb;
+    border-radius: 8px;
+    border: 1px solid #6b7280;
+    min-width: 280px;
+    max-width: 300px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    font-family: 'Inter', sans-serif;
+    transition: height 0.3s ease;
+    /* Smooth collapse/expand */
+    display: flex;
+    flex-direction: column;
+}
+
+.contractor-node.collapsed {
+    min-width: 150px;
+    /* Smaller when collapsed */
+    max-width: 200px;
+    height: auto;
+    /* Adjusts to content */
+}
+
+.contractor-node .handle {
+    background: #10b981;
+    border-radius: 50%;
+}
+
+.contractor-node.selected-node {
+    border-color: #22c55e;
+}
+
+.input-container {
+    margin-bottom: 12px;
+}
+
+.input-label {
+    color: #4b5563;
+    font-weight: 600;
+    font-size: 12px;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.input-field {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #9ca3af;
+    font-size: 14px;
+    color: #1f2937;
+    background: #ffffff;
+    outline: none;
+    box-sizing: border-box;
+    margin-bottom: 6px;
+}
+
+.contractor-node.collapsed .input-field.contractor-name {
+    margin-bottom: 0;
+    /* Tighten up when collapsed */
+}
+
+.textarea-field {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #9ca3af;
+    font-size: 14px;
+    color: #1f2937;
+    background: #ffffff;
+    outline: none;
+    box-sizing: border-box;
+    min-height: 60px;
+    resize: none;
+    overflow: auto;
+}
+
+.add-button {
+    color: #10b981;
+    font-size: 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.creation-time {
+    font-size: 10px;
+    color: #6b7280;
+    text-align: right;
+    margin-top: 8px;
+    opacity: 0.7;
+}
+
+.toggle-button {
+    width: 100%;
+    padding: 6px;
+    background: #10b981;
+    color: #ffffff;
+    border: none;
+    border-radius: 0 0 6px 6px;
+    /* Bottom edge only */
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.toggle-button:hover {
+    background: #059669;
+}

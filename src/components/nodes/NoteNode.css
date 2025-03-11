@@ -1,0 +1,36 @@
+.note-node {
+    padding: 15px;
+    background: #fef08a;
+    border-radius: 6px;
+    border: 2px solid #ca8a04;
+    min-width: 200px;
+    max-width: 300px;
+    box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.2);
+    font-family: 'Comic Sans MS', cursive, sans-serif;
+    display: flex;
+    flex-direction: column;
+}
+
+.note-node .handle {
+    background: #ca8a04;
+}
+
+.note-node.selected-node {
+    border-color: #22c55e;
+}
+
+.note-textarea {
+    width: 100%;
+    padding: 8px;
+    border-radius: 3px;
+    border: 1px solid #ca8a04;
+    background: #fefcbf;
+    color: #1f2937;
+    font-size: 16px;
+    font-family: 'Comic Sans MS', cursive, sans-serif;
+    min-height: 80px;
+    resize: none;
+    box-sizing: border-box;
+    overflow: hidden;
+    /* No scrollbar */
+}
