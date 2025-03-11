@@ -9,7 +9,7 @@ for /f "tokens=*" %%a in (.env) do (
 )
 
 :: Navigate to your repository directory
-cd /d "C:\path\to\your\repository"
+cd /d "C:\xampp\htdocs\crm-app"
 
 :: Add all changes to the staging area
 git add .
@@ -17,8 +17,13 @@ git add .
 :: Commit the changes
 git commit -m "Automated commit from batch script"
 
-:: Push the changes to the master branch
+:: Push the changes to the master branch using the personal access token
 git push https://%GITHUB_USERNAME%:%GITHUB_TOKEN%@github.com/marffinn/diagram.git master
 
-echo Changes pushed successfully!
+if %errorlevel% equ 0 (
+    echo Changes pushed successfully!
+) else (
+    echo Authentication failed or other error occurred.
+)
+
 pause
