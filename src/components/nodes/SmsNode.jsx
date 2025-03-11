@@ -2,25 +2,19 @@ import { Handle, Position } from 'reactflow';
 import './SmsNode.css';
 
 const SmsNode = ({ data }) => {
-    // Dummy chat data for now
-    const dummyMessages = [
-        { id: 1, text: "Hey, how's it going?", sender: 'user', timestamp: '10:30 AM' },
-        { id: 2, text: "Pretty good, you?", sender: 'other', timestamp: '10:31 AM' },
-        { id: 3, text: "Same! Any plans today?", sender: 'user', timestamp: '10:32 AM' },
-    ];
+    const messages = data.messages || [];
+
+    const formatTimestamp = (timestamp) => new Date(parseInt(timestamp)).toLocaleTimeString();
 
     return (
         <div className="sms-node">
             <div className="sms-header">WhatsApp Chat</div>
             <Handle type="target" position={Position.Left} className="handle" />
             <div className="sms-content">
-                {dummyMessages.map((msg) => (
-                    <div
-                        key={msg.id}
-                        className={`chat-bubble ${msg.sender === 'user' ? 'user-message' : 'other-message'}`}
-                    >
+                {messages.map((msg, index) => (
+                    <div key={index} className="chat-bubble user-message">
                         <span className="bubble-text">{msg.text}</span>
-                        <span className="bubble-timestamp">{msg.timestamp}</span>
+                        <span className="bubble-timestamp">{formatTimestamp(msg.timestamp)}</span>
                     </div>
                 ))}
             </div>

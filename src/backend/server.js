@@ -10,7 +10,7 @@ import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import WebSocket, { WebSocketServer } from 'ws'; // Add WebSocket
+import WebSocket, { WebSocketServer } from 'ws';
 
 dotenv.config();
 
@@ -24,7 +24,6 @@ const db = new sqlite3.Database(join(dbDir, 'purple.db'), (err) => {
     console.log('Connected to SQLite database');
 });
 
-// WebSocket Server
 const wss = new WebSocketServer({ port: 8080 });
 wss.on('connection', (ws) => {
     console.log('WebSocket client connected');
@@ -302,7 +301,7 @@ app.get('/incoming-sms', (req, res) => {
     console.log(`User: ${req.user ? req.user.id : 'Not authenticated'}`);
 
     db.all(`
-        SELECT n.id, n.type, n.data, n.userId, c.name AS client_name, c.phones AS client_phones 
+        SELECT n.id, n.type, n.data, n.userId, n.x, n.y, c.name AS client_name, c.phones AS client_phones 
         FROM nodes n 
         LEFT JOIN clients c ON n.clientId = c.id 
         WHERE n.type = 'customer' OR n.type = 'contractor'`,
@@ -319,35 +318,88 @@ app.get('/incoming-sms', (req, res) => {
                 return;
             }
 
-            let found = false;
-            let nodeId = null;
+            let parentNode = null;
             for (const row of rows) {
                 if (row.type === 'customer' && row.client_phones) {
                     const phones = JSON.parse(row.client_phones);
                     if (phones.some(phone => phone.replace(/[^0-9]/g, '') === cleanSender)) {
                         console.log(`SMS identified as: Customer - ${row.client_name} (userId: ${row.userId})`);
-                        found = true;
-                        nodeId = row.id;
+                        parentNode = row;
                         break;
                     }
                 } else if (row.type === 'contractor') {
                     const data = JSON.parse(row.data || '{}');
                     if (data.numbers && data.numbers.some(num => num.replace(/[^0-9]/g, '') === cleanSender)) {
                         console.log(`SMS identified as: Contractor - ${data.contractor_name} (userId: ${row.userId})`);
-                        found = true;
-                        nodeId = row.id;
+                        parentNode = row;
                         break;
                     }
                 }
             }
 
-            if (found) {
-                broadcast({ type: 'incoming-sms', nodeId, message });
-                res.json({ found: true, nodeId });
-            } else {
+            if (!parentNode) {
                 console.log('SMS sender not found in database');
                 res.json({ found: false });
+                return;
             }
+
+            // Check for existing SmsNode linked to parent
+            db.get('SELECT n.id, n.data FROM nodes n JOIN edges e ON n.id = e.target WHERE e.source = ? AND n.type = "sms"',
+                [parentNode.id],
+                (err, smsNode) => {
+                    if (err) {
+                        console.error('Error checking SmsNode:', err);
+                        res.sendStatus(500);
+                        return;
+                    }
+
+                    const timestamp = Date.now();
+                    if (smsNode) {
+                        // Update existing SmsNode
+                        const currentData = JSON.parse(smsNode.data || '{}');
+                        const messages = currentData.messages || [];
+                        messages.push({ text: message, timestamp });
+                        db.run('UPDATE nodes SET data = ? WHERE id = ?',
+                            [JSON.stringify({ messages }), smsNode.id],
+                            (err) => {
+                                if (err) {
+                                    console.error('Error updating SmsNode:', err);
+                                    res.sendStatus(500);
+                                    return;
+                                }
+                                console.log(`Updated SmsNode ${smsNode.id} with new message`);
+                                broadcast({ type: 'incoming-sms', nodeId: smsNode.id, parentId: parentNode.id, message, timestamp });
+                                res.json({ found: true, nodeId: smsNode.id });
+                            });
+                    } else {
+                        // Create new SmsNode only if none exists
+                        const newNodeId = `sms-${timestamp}`;
+                        const smsX = parentNode.x + 150;
+                        const smsY = parentNode.y + 50;
+                        const newData = { messages: [{ text: message, timestamp }] };
+                        db.run('INSERT INTO nodes (id, type, x, y, userId, data) VALUES (?, ?, ?, ?, ?, ?)',
+                            [newNodeId, 'sms', smsX, smsY, parentNode.userId, JSON.stringify(newData)],
+                            (err) => {
+                                if (err) {
+                                    console.error('Error creating SmsNode:', err);
+                                    res.sendStatus(500);
+                                    return;
+                                }
+                                db.run('INSERT INTO edges (id, source, target, userId) VALUES (?, ?, ?, ?)',
+                                    [`edge-${timestamp}`, parentNode.id, newNodeId, parentNode.userId],
+                                    (err) => {
+                                        if (err) {
+                                            console.error('Error creating edge:', err);
+                                            res.sendStatus(500);
+                                            return;
+                                        }
+                                        console.log(`Created SmsNode ${newNodeId} linked to ${parentNode.id}`);
+                                        broadcast({ type: 'incoming-sms', nodeId: newNodeId, parentId: parentNode.id, message, timestamp });
+                                        res.json({ found: true, nodeId: newNodeId });
+                                    });
+                            });
+                    }
+                });
         });
 });
 

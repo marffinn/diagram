@@ -9,6 +9,52 @@ import ContractorNode from './nodes/ContractorNode';
 import './FlowCanvas.css';
 import 'reactflow/dist/style.css';
 
+// Singleton WebSocket
+let ws = null;
+const connectWebSocket = () => {
+    if (ws && ws.readyState === WebSocket.OPEN) return ws;
+
+    ws = new WebSocket('ws://localhost:8080');
+    ws.onopen = () => console.log('Connected to WebSocket');
+    ws.onmessage = (event) => {
+        const { type, nodeId, parentId, message, timestamp } = JSON.parse(event.data);
+        if (type === 'incoming-call') {
+            console.log(`Panning to node ${nodeId} for ${type}`);
+            const fitViewInstance = window.fitViewInstance; // Hack to access fitView outside useEffect
+            if (fitViewInstance) fitViewInstance({ nodes: [{ id: nodeId }], duration: 1000, padding: 0.2 });
+        } else if (type === 'incoming-sms' && nodeId) {
+            console.log(`Handling SMS for node ${nodeId}`);
+            const setNodesInstance = window.setNodesInstance;
+            const setEdgesInstance = window.setEdgesInstance;
+            const nodesInstance = window.nodesInstance || [];
+            if (setNodesInstance && setEdgesInstance) {
+                const parentNode = nodesInstance.find(n => n.id === parentId);
+                const existingSmsNode = nodesInstance.find(n => n.id === nodeId);
+                if (existingSmsNode) {
+                    setNodesInstance(nds => nds.map(n => n.id === nodeId ? {
+                        ...n,
+                        data: { messages: [...(n.data.messages || []), { text: message, timestamp }] }
+                    } : n));
+                } else if (parentNode) {
+                    const newNode = {
+                        id: nodeId,
+                        type: 'sms',
+                        position: { x: parentNode.position.x + 150, y: parentNode.position.y + 50 },
+                        data: { messages: [{ text: message, timestamp }] }
+                    };
+                    setNodesInstance(nds => [...nds, newNode]);
+                    setEdgesInstance(eds => [...eds, { id: `edge-${timestamp}`, source: parentId, target: nodeId }]);
+                }
+                const fitViewInstance = window.fitViewInstance;
+                if (fitViewInstance) fitViewInstance({ nodes: [{ id: nodeId }], duration: 1000, padding: 0.2 });
+            }
+        }
+    };
+    ws.onerror = (err) => console.error('WebSocket error:', err);
+    ws.onclose = () => console.log('WebSocket closed');
+    return ws;
+};
+
 const baseNodeTypes = {
     user: UserNode,
     customer: CustomerNode,
@@ -26,6 +72,20 @@ const FlowCanvas = ({ user }) => {
     const [selectedNodeId, setSelectedNodeId] = useState(null);
     const { screenToFlowPosition, fitView } = useReactFlow();
 
+    // Store instances for WebSocket access
+    useEffect(() => {
+        window.fitViewInstance = fitView;
+        window.setNodesInstance = setNodes;
+        window.setEdgesInstance = setEdges;
+        window.nodesInstance = nodes;
+        return () => {
+            window.fitViewInstance = null;
+            window.setNodesInstance = null;
+            window.setEdgesInstance = null;
+            window.nodesInstance = null;
+        };
+    }, [fitView, setNodes, setEdges, nodes]);
+
     const onNodeDataChange = useCallback((nodeId, newData) => {
         setNodes(nds => nds.map(node => node.id === nodeId ? { ...node, data: { ...node.data, ...newData } } : node));
     }, [setNodes]);
@@ -42,6 +102,7 @@ const FlowCanvas = ({ user }) => {
 
     useEffect(() => {
         if (!user) return;
+
         const fetchData = async (url, setter) => {
             try {
                 const res = await fetch(url, { credentials: 'include' });
@@ -57,20 +118,7 @@ const FlowCanvas = ({ user }) => {
         });
         fetchData('http://localhost:3000/api/edges', setEdges);
 
-        // WebSocket for incoming calls/SMS
-        const ws = new WebSocket('ws://localhost:8080');
-        ws.onopen = () => console.log('Connected to WebSocket');
-        ws.onmessage = (event) => {
-            const { type, nodeId } = JSON.parse(event.data);
-            if (nodeId) {
-                console.log(`Panning to node ${nodeId} for ${type}`);
-                fitView({ nodes: [{ id: nodeId }], duration: 1000, padding: 0.2 });
-            }
-        };
-        ws.onerror = (err) => console.error('WebSocket error:', err);
-        ws.onclose = () => console.log('WebSocket closed');
-
-        return () => ws.close();
+        connectWebSocket(); // Connect once on mount
     }, [user, setNodes, setEdges, fitView]);
 
     useEffect(() => {
@@ -118,12 +166,19 @@ const FlowCanvas = ({ user }) => {
                 data: { client_name: 'New Customer', client_emails: [], client_phones: [], client_note: '' }
             };
         } else {
-            newNode = {
-                id: newNodeId,
-                type: 'timer',
-                position,
-                data: { created_at: Date.now() }
-            };
+            const hasSmsNode = edges.some(e => e.source === sourceNode.id && nodes.find(n => n.id === e.target)?.type === 'sms');
+            if (!hasSmsNode) {
+                newNode = {
+                    id: newNodeId,
+                    type: 'timer',
+                    position,
+                    data: { created_at: Date.now() }
+                };
+            } else {
+                console.log('Parent already has an SmsNode—no new node created');
+                setConnectingNodeId(null);
+                return;
+            }
         }
 
         setNodes(nds => nds.concat(newNode));
@@ -137,7 +192,7 @@ const FlowCanvas = ({ user }) => {
             ...newNode.data
         });
         setConnectingNodeId(null);
-    }, [setNodes, setEdges, connectingNodeId, screenToFlowPosition, nodes]);
+    }, [setNodes, setEdges, connectingNodeId, screenToFlowPosition, nodes, edges]);
 
     const onNodesChange = useCallback((changes) => {
         setNodes(nds => applyNodeChanges(changes, nds));
@@ -172,6 +227,14 @@ const FlowCanvas = ({ user }) => {
     }, []);
 
     const changeNodeType = (newType) => {
+        const parentNode = nodes.find(n => n.id === contextMenu.nodeId);
+        const hasSmsNode = edges.some(e => e.source === parentNode.id && nodes.find(n => n.id === e.target)?.type === 'sms');
+        if (newType === 'sms' && hasSmsNode) {
+            alert('Parent already has an SmsNode—cannot change to another!');
+            setContextMenu(null);
+            return;
+        }
+
         setNodes(nds => nds.map(node => node.id === contextMenu.nodeId ? {
             ...node,
             type: newType,
@@ -179,7 +242,7 @@ const FlowCanvas = ({ user }) => {
                 ...(newType === 'timer' && { created_at: Date.now() }),
                 ...(newType === 'customer' && { client_name: 'New Customer', client_emails: [], client_phones: [], client_note: '' }),
                 ...(newType === 'note' && { notes: 'New Note' }),
-                ...(newType === 'sms' && { notes: 'SMS Chat' }),
+                ...(newType === 'sms' && { messages: [] }),
                 ...(newType === 'contractor' && {
                     contractor_name: 'New Contractor',
                     services: '',
